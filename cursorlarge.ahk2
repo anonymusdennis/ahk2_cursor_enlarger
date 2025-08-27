@@ -1,0 +1,1047 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+
+; ==================== CONFIGURATION ====================
+class Config {
+    ; REASONABLE DEFAULTS - Optimized for performance
+    
+    ; Detection settings
+    static WiggleThreshold := 350        ; Reasonable movement threshold
+    static TimeWindow := 750             ; 3/4 second window
+    static MinWiggleCount := 3           ; 3 wiggles minimum
+    static MinWiggleDistance := 30       ; Reasonable minimum distance
+    static MaxSingleDirection := 500     ; Prevents false positives
+    static RequireAlternating := true    ; Keep alternating requirement
+    
+    ; Display settings - NO LIMITS!
+    static EnlargeScale := 2.0           ; 2x enlargement (reasonable)
+    static RestingScale := 1.0           ; Normal size when resting
+    static MinimumScale := 0.001         ; Allow extremely small cursor
+    static MaximumScale := 100.0         ; Allow extremely large cursor
+    static EnlargeDuration := 500        ; Hold enlarged for half second AFTER wiggling stops
+    static InterpolationTime := 800      ; MUCH slower growth (was 200)
+    static ShrinkTime := 1000            ; Slower shrink back (was 250)
+    static SmoothShrink := true
+    static MaintainMaxWhileWiggling := true
+    static ContinuousGrowth := true      ; Keep growing while wiggling
+    static GrowthRate := 1.02            ; Growth multiplier per wiggle detection (2% growth)
+    
+    ; Performance settings - OPTIMIZED
+    static CheckInterval := 30           ; Check every 30ms (balanced)
+    static UpdateInterval := 50          ; Update every 50ms (smooth)
+    static Enabled := true
+    
+    ; Visual Effects - OFF by default for performance
+    static PulseOnWiggle := false        ; OFF - CPU intensive
+    static PulseSpeed := 500
+    static RainbowMode := false          ; OFF - distracting
+    static ChaosMode := false            ; OFF - unpredictable
+    static RandomScaleMin := 0.001
+    static RandomScaleMax := 10.0        ; Reasonable max if enabled
+    
+    ; Advanced Detection - OFF for performance
+    static CircularWiggleDetection := false  ; OFF - CPU intensive
+    static DiagonalWiggleDetection := false  ; OFF - CPU intensive
+    static PatternMemory := 5                ; Reasonable memory
+    static AdaptiveSensitivity := false      ; OFF - CPU intensive
+    
+    ; File paths
+    static ConfigFile := A_ScriptDir . "\wiggle_config.ini"
+    
+    ; Save configuration
+    static Save() {
+        try {
+            ; Detection settings
+            IniWrite(this.WiggleThreshold, this.ConfigFile, "Detection", "WiggleThreshold")
+            IniWrite(this.TimeWindow, this.ConfigFile, "Detection", "TimeWindow")
+            IniWrite(this.MinWiggleCount, this.ConfigFile, "Detection", "MinWiggleCount")
+            IniWrite(this.MaxSingleDirection, this.ConfigFile, "Detection", "MaxSingleDirection")
+            IniWrite(this.RequireAlternating, this.ConfigFile, "Detection", "RequireAlternating")
+            IniWrite(this.MinWiggleDistance, this.ConfigFile, "Detection", "MinWiggleDistance")
+            IniWrite(this.CircularWiggleDetection, this.ConfigFile, "Detection", "CircularWiggleDetection")
+            IniWrite(this.DiagonalWiggleDetection, this.ConfigFile, "Detection", "DiagonalWiggleDetection")
+            IniWrite(this.PatternMemory, this.ConfigFile, "Detection", "PatternMemory")
+            IniWrite(this.AdaptiveSensitivity, this.ConfigFile, "Detection", "AdaptiveSensitivity")
+            
+            ; Display settings
+            IniWrite(Format("{:.2f}", this.EnlargeScale), this.ConfigFile, "Display", "EnlargeScale")
+            IniWrite(Format("{:.2f}", this.RestingScale), this.ConfigFile, "Display", "RestingScale")
+            IniWrite(Format("{:.3f}", this.MinimumScale), this.ConfigFile, "Display", "MinimumScale")
+            IniWrite(Format("{:.2f}", this.MaximumScale), this.ConfigFile, "Display", "MaximumScale")
+            IniWrite(this.EnlargeDuration, this.ConfigFile, "Display", "EnlargeDuration")
+            IniWrite(this.InterpolationTime, this.ConfigFile, "Display", "InterpolationTime")
+            IniWrite(this.SmoothShrink, this.ConfigFile, "Display", "SmoothShrink")
+            IniWrite(this.ShrinkTime, this.ConfigFile, "Display", "ShrinkTime")
+            IniWrite(this.MaintainMaxWhileWiggling, this.ConfigFile, "Display", "MaintainMaxWhileWiggling")
+            IniWrite(this.ContinuousGrowth, this.ConfigFile, "Display", "ContinuousGrowth")
+            IniWrite(Format("{:.4f}", this.GrowthRate), this.ConfigFile, "Display", "GrowthRate")
+            
+            ; Visual Effects
+            IniWrite(this.PulseOnWiggle, this.ConfigFile, "VisualEffects", "PulseOnWiggle")
+            IniWrite(this.PulseSpeed, this.ConfigFile, "VisualEffects", "PulseSpeed")
+            IniWrite(this.RainbowMode, this.ConfigFile, "VisualEffects", "RainbowMode")
+            IniWrite(this.ChaosMode, this.ConfigFile, "VisualEffects", "ChaosMode")
+            IniWrite(Format("{:.3f}", this.RandomScaleMin), this.ConfigFile, "VisualEffects", "RandomScaleMin")
+            IniWrite(Format("{:.2f}", this.RandomScaleMax), this.ConfigFile, "VisualEffects", "RandomScaleMax")
+            
+            ; General settings
+            IniWrite(this.Enabled, this.ConfigFile, "General", "Enabled")
+            IniWrite(this.CheckInterval, this.ConfigFile, "General", "CheckInterval")
+            IniWrite(this.UpdateInterval, this.ConfigFile, "General", "UpdateInterval")
+            
+            return true
+        } catch {
+            return false
+        }
+    }
+    
+    ; Load configuration
+    static Load() {
+        try {
+            if (!FileExist(this.ConfigFile)) {
+                this.Save() ; Create default config
+                return
+            }
+            
+            ; Load with reasonable defaults as fallback
+            this.WiggleThreshold := Integer(IniRead(this.ConfigFile, "Detection", "WiggleThreshold", 350))
+            this.TimeWindow := Integer(IniRead(this.ConfigFile, "Detection", "TimeWindow", 750))
+            this.MinWiggleCount := Integer(IniRead(this.ConfigFile, "Detection", "MinWiggleCount", 3))
+            this.MaxSingleDirection := Integer(IniRead(this.ConfigFile, "Detection", "MaxSingleDirection", 500))
+            this.RequireAlternating := IniRead(this.ConfigFile, "Detection", "RequireAlternating", "1") = "1"
+            this.MinWiggleDistance := Integer(IniRead(this.ConfigFile, "Detection", "MinWiggleDistance", 30))
+            this.CircularWiggleDetection := IniRead(this.ConfigFile, "Detection", "CircularWiggleDetection", "0") = "1"
+            this.DiagonalWiggleDetection := IniRead(this.ConfigFile, "Detection", "DiagonalWiggleDetection", "0") = "1"
+            this.PatternMemory := Integer(IniRead(this.ConfigFile, "Detection", "PatternMemory", 5))
+            this.AdaptiveSensitivity := IniRead(this.ConfigFile, "Detection", "AdaptiveSensitivity", "0") = "1"
+            
+            this.EnlargeScale := Float(IniRead(this.ConfigFile, "Display", "EnlargeScale", "2.0"))
+            this.RestingScale := Float(IniRead(this.ConfigFile, "Display", "RestingScale", "1.0"))
+            this.MinimumScale := Float(IniRead(this.ConfigFile, "Display", "MinimumScale", "0.001"))
+            this.MaximumScale := Float(IniRead(this.ConfigFile, "Display", "MaximumScale", "100.0"))
+            this.EnlargeDuration := Integer(IniRead(this.ConfigFile, "Display", "EnlargeDuration", 500))
+            this.InterpolationTime := Integer(IniRead(this.ConfigFile, "Display", "InterpolationTime", 800))
+            this.SmoothShrink := IniRead(this.ConfigFile, "Display", "SmoothShrink", "1") = "1"
+            this.ShrinkTime := Integer(IniRead(this.ConfigFile, "Display", "ShrinkTime", 1000))
+            this.MaintainMaxWhileWiggling := IniRead(this.ConfigFile, "Display", "MaintainMaxWhileWiggling", "1") = "1"
+            this.ContinuousGrowth := IniRead(this.ConfigFile, "Display", "ContinuousGrowth", "1") = "1"
+            this.GrowthRate := Float(IniRead(this.ConfigFile, "Display", "GrowthRate", "1.02"))
+            
+            this.PulseOnWiggle := IniRead(this.ConfigFile, "VisualEffects", "PulseOnWiggle", "0") = "1"
+            this.PulseSpeed := Integer(IniRead(this.ConfigFile, "VisualEffects", "PulseSpeed", 500))
+            this.RainbowMode := IniRead(this.ConfigFile, "VisualEffects", "RainbowMode", "0") = "1"
+            this.ChaosMode := IniRead(this.ConfigFile, "VisualEffects", "ChaosMode", "0") = "1"
+            this.RandomScaleMin := Float(IniRead(this.ConfigFile, "VisualEffects", "RandomScaleMin", "0.001"))
+            this.RandomScaleMax := Float(IniRead(this.ConfigFile, "VisualEffects", "RandomScaleMax", "10.0"))
+            
+            this.Enabled := IniRead(this.ConfigFile, "General", "Enabled", "1") = "1"
+            this.CheckInterval := Integer(IniRead(this.ConfigFile, "General", "CheckInterval", 30))
+            this.UpdateInterval := Integer(IniRead(this.ConfigFile, "General", "UpdateInterval", 50))
+            
+        } catch {
+            ; Use defaults on error
+        }
+    }
+}
+
+; ==================== GLOBALS ====================
+global SYSTEM_ORIGINAL_SIZE := 32
+global BASE_CURSOR_SIZE := 32
+global ABSOLUTE_MAX_SIZE := 32768     ; Windows absolute maximum
+global ABSOLUTE_MIN_SIZE := 1          ; Windows absolute minimum
+
+global currentCursorSize := 32
+global targetCursorSize := 32
+global actualTargetScale := 1.0       ; Track the actual scale we're targeting
+global isAnimating := false
+global isEnlarged := false
+global isCurrentlyWiggling := false   ; Track active wiggling state
+global wiggleDetectorInstance := ""
+global lastCursorUpdate := 0
+global checkMouseTimer := 0
+global updateCursorTimer := 0
+global shrinkTimer := 0
+global wiggleCount := 0               ; Track consecutive wiggles for growth
+
+; ==================== MAIN DETECTION CLASS ====================
+class WiggleDetector {
+    __New() {
+        this.Reset()
+        
+        MouseGetPos(&x, &y)
+        this.lastX := x
+        this.lastY := y
+        
+        this.checkTimer := ObjBindMethod(this, "CheckMouse")
+        this.updateTimer := ObjBindMethod(this, "UpdateCursor")
+        
+        global checkMouseTimer, updateCursorTimer
+        SetTimer(this.checkTimer, Config.CheckInterval)
+        checkMouseTimer := this.checkTimer
+        
+        SetTimer(this.updateTimer, Config.UpdateInterval)
+        updateCursorTimer := this.updateTimer
+    }
+    
+    Reset() {
+        this.movements := []
+        this.lastDirection := ""
+        this.directionChanges := 0
+        this.totalDistance := 0
+        this.wiggleStartTime := 0
+        this.lastWiggleTime := 0
+        
+        this.leftMovement := 0
+        this.rightMovement := 0
+        this.upMovement := 0
+        this.downMovement := 0
+        this.horizontalChanges := []
+    }
+    
+    CheckMouse() {
+        if (!Config.Enabled)
+            return
+        
+        MouseGetPos(&currentX, &currentY)
+        
+        deltaX := currentX - this.lastX
+        deltaY := currentY - this.lastY
+        distance := Sqrt(deltaX ** 2 + deltaY ** 2)
+        
+        ; Skip if no significant movement
+        if (distance < 2) {
+            if (isCurrentlyWiggling) {
+                now := A_TickCount
+                if (now - this.lastWiggleTime > 200) {
+                    this.StopWiggling()
+                }
+            }
+            this.lastX := currentX
+            this.lastY := currentY
+            return
+        }
+        
+        now := A_TickCount
+        
+        ; Track movement directions
+        if (deltaX > 0) {
+            this.rightMovement += Abs(deltaX)
+        } else if (deltaX < 0) {
+            this.leftMovement += Abs(deltaX)
+        }
+        
+        if (deltaY > 0) {
+            this.downMovement += Abs(deltaY)
+        } else if (deltaY < 0) {
+            this.upMovement += Abs(deltaY)
+        }
+        
+        ; Check for excessive single direction movement
+        maxHorizontal := Max(this.leftMovement, this.rightMovement)
+        maxVertical := Max(this.upMovement, this.downMovement)
+        
+        if (maxHorizontal > Config.MaxSingleDirection || maxVertical > Config.MaxSingleDirection) {
+            if (!isCurrentlyWiggling) {
+                this.Reset()
+            } else {
+                ; During wiggling, just reset counters but don't stop
+                this.ResetCounters()
+            }
+            this.lastX := currentX
+            this.lastY := currentY
+            return
+        }
+        
+        ; Detect direction changes (optimized)
+        if (Abs(deltaX) >= Config.MinWiggleDistance / 10) {
+            currentDirection := deltaX > 0 ? "right" : "left"
+            
+            if (this.lastDirection != "" && currentDirection != this.lastDirection) {
+                this.directionChanges++
+                this.horizontalChanges.Push({
+                    direction: currentDirection,
+                    distance: Abs(deltaX),
+                    time: now
+                })
+            }
+            
+            this.lastDirection := currentDirection
+        }
+        
+        ; Store movement
+        this.movements.Push({
+            x: currentX,
+            y: currentY,
+            time: now,
+            distance: distance,
+            deltaX: deltaX,
+            deltaY: deltaY
+        })
+        
+        ; Clean old movements
+        while (this.movements.Length > 0 && now - this.movements[1].time > Config.TimeWindow) {
+            this.movements.RemoveAt(1)
+        }
+        
+        while (this.horizontalChanges.Length > 0 && now - this.horizontalChanges[1].time > Config.TimeWindow) {
+            this.horizontalChanges.RemoveAt(1)
+            if (this.directionChanges > 0) {
+                this.directionChanges--
+            }
+        }
+        
+        ; Calculate total distance
+        this.totalDistance := 0
+        for movement in this.movements {
+            this.totalDistance += movement.distance
+        }
+        
+        ; Check for wiggle
+        if (this.IsValidWiggle()) {
+            if (!isCurrentlyWiggling) {
+                this.StartWiggling()
+            } else {
+                this.ContinueWiggling()
+            }
+            this.lastWiggleTime := now
+        } else if (isCurrentlyWiggling && now - this.lastWiggleTime > 100) {
+            ; Don't stop immediately, give a grace period
+            ; Wiggling will stop after the EnlargeDuration
+        }
+        
+        this.lastX := currentX
+        this.lastY := currentY
+    }
+    
+    ResetCounters() {
+        this.leftMovement := 0
+        this.rightMovement := 0
+        this.upMovement := 0
+        this.downMovement := 0
+        this.movements := []
+        this.horizontalChanges := []
+        this.directionChanges := 0
+        this.totalDistance := 0
+        this.lastDirection := ""
+    }
+    
+    IsValidWiggle() {
+        ; Basic checks first (fast)
+        if (this.totalDistance < Config.WiggleThreshold)
+            return false
+        
+        if (this.directionChanges < Config.MinWiggleCount)
+            return false
+        
+        if (this.movements.Length < 5)
+            return false
+        
+        ; Check for alternating pattern if required
+        if (Config.RequireAlternating && this.horizontalChanges.Length >= 3) {
+            isAlternating := true
+            lastDir := ""
+            
+            for change in this.horizontalChanges {
+                if (lastDir != "" && change.direction = lastDir) {
+                    isAlternating := false
+                    break
+                }
+                lastDir := change.direction
+            }
+            
+            if (!isAlternating)
+                return false
+        }
+        
+        ; Check horizontal vs vertical movement
+        totalHorizontal := this.leftMovement + this.rightMovement
+        totalVertical := this.upMovement + this.downMovement
+        
+        if (totalHorizontal < totalVertical * 1.5) {
+            return false
+        }
+        
+        ; Additional detection modes (only if enabled for performance)
+        if (Config.CircularWiggleDetection) {
+            if (this.DetectCircularPattern())
+                return true
+        }
+        
+        if (Config.DiagonalWiggleDetection) {
+            if (this.DetectDiagonalPattern())
+                return true
+        }
+        
+        return true
+    }
+    
+    DetectCircularPattern() {
+        ; Simplified circular detection (performance optimized)
+        if (this.movements.Length < 8)
+            return false
+        
+        ; Check if movement forms a rough circle
+        angles := []
+        for i, movement in this.movements {
+            if (i > 1) {
+                angle := ATan2(movement.deltaY, movement.deltaX)
+                angles.Push(angle)
+            }
+        }
+        
+        ; Check for full rotation
+        totalRotation := 0
+        for i, angle in angles {
+            if (i > 1) {
+                diff := angle - angles[i-1]
+                if (diff > 3.14159)
+                    diff -= 6.28318
+                else if (diff < -3.14159)
+                    diff += 6.28318
+                totalRotation += diff
+            }
+        }
+        
+        return Abs(totalRotation) > 3.14159  ; At least half circle
+    }
+    
+    DetectDiagonalPattern() {
+        ; Simplified diagonal detection
+        if (this.movements.Length < 4)
+            return false
+        
+        diagonalCount := 0
+        for movement in this.movements {
+            if (Abs(movement.deltaX) > 5 && Abs(movement.deltaY) > 5) {
+                ratio := Abs(movement.deltaX) / Abs(movement.deltaY)
+                if (ratio > 0.5 && ratio < 2.0) {
+                    diagonalCount++
+                }
+            }
+        }
+        
+        return diagonalCount >= this.movements.Length * 0.6
+    }
+    
+    StartWiggling() {
+        global targetCursorSize, isAnimating, isEnlarged, BASE_CURSOR_SIZE, isCurrentlyWiggling, wiggleCount, actualTargetScale, shrinkTimer
+        
+        isCurrentlyWiggling := true
+        wiggleCount := 1
+        this.wiggleStartTime := A_TickCount
+        
+        ; Clear any existing shrink timer
+        if (shrinkTimer) {
+            SetTimer(shrinkTimer, 0)
+            shrinkTimer := 0
+        }
+        
+        ; Calculate initial target
+        if (Config.ChaosMode) {
+            actualTargetScale := Random(Config.RandomScaleMin, Config.RandomScaleMax)
+        } else {
+            actualTargetScale := Config.EnlargeScale
+        }
+        
+        ; Calculate size with proper limits
+        calculatedSize := Round(BASE_CURSOR_SIZE * actualTargetScale)
+        targetCursorSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
+        
+        isAnimating := true
+        isEnlarged := true
+
+    }
+    
+    ContinueWiggling() {
+        global targetCursorSize, BASE_CURSOR_SIZE, isCurrentlyWiggling, wiggleCount, actualTargetScale
+        
+        isCurrentlyWiggling := true
+        wiggleCount++
+        
+        ; Continuous growth while wiggling
+        if (Config.ContinuousGrowth) {
+            ; Increase the target scale
+            actualTargetScale *= Config.GrowthRate
+            
+            ; Apply maximum limit
+            if (actualTargetScale > Config.MaximumScale) {
+                actualTargetScale := Config.MaximumScale
+            }
+            
+            ; Calculate new target size with proper limits
+            calculatedSize := Round(BASE_CURSOR_SIZE * actualTargetScale)
+            targetCursorSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
+        }
+    }
+    
+    StopWiggling() {
+        global shrinkTimer, isCurrentlyWiggling, wiggleCount
+        
+        isCurrentlyWiggling := false
+        wiggleCount := 0
+        
+        ; Clear any existing timer
+        if (shrinkTimer) {
+            SetTimer(shrinkTimer, 0)
+            shrinkTimer := 0
+        }
+        
+        ; Set timer to shrink after the configured duration
+        shrinkTimer := ShrinkAfterDelay
+        SetTimer(shrinkTimer, -Config.EnlargeDuration)
+    }
+    
+    UpdateCursor() {
+        global currentCursorSize, targetCursorSize, isAnimating, lastCursorUpdate, isCurrentlyWiggling
+        
+        ; If we're at target and not wiggling, nothing to do
+        if (currentCursorSize = targetCursorSize && !isCurrentlyWiggling) {
+            isAnimating := false
+            return
+        }
+        
+        now := A_TickCount
+        if (now - lastCursorUpdate < 30) {
+            return
+        }
+        
+        diff := targetCursorSize - currentCursorSize
+        
+        ; Calculate animation speed based on whether growing or shrinking
+        if (targetCursorSize > currentCursorSize) {
+            ; Growing - use slower interpolation time
+            animSpeed := 1000 / Config.InterpolationTime * Config.UpdateInterval / 1000
+        } else {
+            ; Shrinking - use shrink time
+            animSpeed := 1000 / Config.ShrinkTime * Config.UpdateInterval / 1000
+        }
+        
+        step := diff * animSpeed
+        
+        ; Smooth animation
+        if (Abs(step) < 0.5) {
+            currentCursorSize := targetCursorSize
+        } else {
+            currentCursorSize += step
+        }
+        
+        ; Apply limits
+        newSize := Round(currentCursorSize)
+        newSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, newSize))
+        
+        if (newSize != GetCursorSize()) {
+            SetCursorSize(newSize)
+            lastCursorUpdate := now
+        }
+        
+        if (Abs(currentCursorSize - targetCursorSize) < 0.5) {
+            currentCursorSize := targetCursorSize
+            if (!isCurrentlyWiggling) {
+                isAnimating := false
+            }
+        }
+    }
+    
+    Destroy() {
+        global checkMouseTimer, updateCursorTimer
+        if (checkMouseTimer) {
+            SetTimer(checkMouseTimer, 0)
+            checkMouseTimer := 0
+        }
+        if (updateCursorTimer) {
+            SetTimer(updateCursorTimer, 0)
+            updateCursorTimer := 0
+        }
+    }
+}
+
+; ==================== CURSOR FUNCTIONS ====================
+GetCursorSize() {
+    try {
+        size := RegRead("HKCU\Control Panel\Cursors", "CursorBaseSize")
+        return Integer(size)
+    } catch {
+        return 32
+    }
+}
+
+SetCursorSize(size) {
+    ; Allow any size within absolute limits
+    if (size < ABSOLUTE_MIN_SIZE)
+        size := ABSOLUTE_MIN_SIZE
+    if (size > ABSOLUTE_MAX_SIZE)
+        size := ABSOLUTE_MAX_SIZE
+    
+    try {
+        RegWrite(size, "REG_DWORD", "HKCU\Control Panel\Cursors", "CursorBaseSize")
+        DllCall("SystemParametersInfo", "UInt", 0x2029, "UInt", 0, "Ptr", size, "UInt", 0x01)
+        DllCall("SystemParametersInfo", "UInt", 0x0057, "UInt", 0, "Ptr", 0, "UInt", 0)
+        return true
+    } catch {
+        return false
+    }
+}
+
+RestoreCursor() {
+    global SYSTEM_ORIGINAL_SIZE, currentCursorSize, targetCursorSize, isAnimating, isEnlarged, isCurrentlyWiggling
+    
+    SetCursorSize(SYSTEM_ORIGINAL_SIZE)
+    currentCursorSize := SYSTEM_ORIGINAL_SIZE
+    targetCursorSize := SYSTEM_ORIGINAL_SIZE
+    isAnimating := false
+    isEnlarged := false
+    isCurrentlyWiggling := false
+}
+
+InitializeBaseSizes() {
+    global SYSTEM_ORIGINAL_SIZE, BASE_CURSOR_SIZE, currentCursorSize, targetCursorSize
+    
+    SYSTEM_ORIGINAL_SIZE := GetCursorSize()
+    BASE_CURSOR_SIZE := Round(SYSTEM_ORIGINAL_SIZE * Config.RestingScale)
+    
+    ; Apply minimum scale limit
+    if (Config.MinimumScale < 0.001)
+        Config.MinimumScale := 0.001
+    
+    ; Allow very small cursor sizes
+    minSize := Round(SYSTEM_ORIGINAL_SIZE * Config.MinimumScale)
+    if (BASE_CURSOR_SIZE < minSize)
+        BASE_CURSOR_SIZE := minSize
+    
+    if (BASE_CURSOR_SIZE < ABSOLUTE_MIN_SIZE)
+        BASE_CURSOR_SIZE := ABSOLUTE_MIN_SIZE
+    if (BASE_CURSOR_SIZE > ABSOLUTE_MAX_SIZE)
+        BASE_CURSOR_SIZE := ABSOLUTE_MAX_SIZE
+    
+    currentCursorSize := BASE_CURSOR_SIZE
+    targetCursorSize := BASE_CURSOR_SIZE
+    
+    if (BASE_CURSOR_SIZE != SYSTEM_ORIGINAL_SIZE) {
+        SetCursorSize(BASE_CURSOR_SIZE)
+    }
+}
+
+; Callback for delayed shrink
+ShrinkAfterDelay() {
+    global targetCursorSize, BASE_CURSOR_SIZE, isEnlarged, isCurrentlyWiggling, actualTargetScale
+    
+    if (!isCurrentlyWiggling) {
+        targetCursorSize := BASE_CURSOR_SIZE
+        isEnlarged := false
+        actualTargetScale := Config.RestingScale
+    }
+}
+
+; ==================== CONFIGURATION GUI ====================
+ShowConfigGui(*) {
+    configGui := Gui("+Resize", "Mouse Wiggle Enlarger - Configuration")
+    configGui.MarginX := 15
+    configGui.MarginY := 15
+    
+    ; Tab control
+    tabs := configGui.Add("Tab3", "w500 h550", ["Basic Detection", "Advanced Detection", "Display", "Animation", "Visual Effects", "Performance", "System"])
+    
+    ; Helper function to get numeric value from control
+    GetNumericValue(ctrl, defaultVal := 0, isFloat := false) {
+        text := ctrl.Text
+        if (text = "")
+            return defaultVal
+        
+        try {
+            if (isFloat)
+                return Float(text)
+            else
+                return Integer(text)
+        } catch {
+            return defaultVal
+        }
+    }
+    
+    ; ==================== BASIC DETECTION TAB ====================
+    tabs.UseTab(1)
+    
+    configGui.Add("Text", "Section", "Basic Wiggle Detection")
+    
+    configGui.Add("Text", "xs y+15", "Total Movement Required (pixels):")
+    thresholdEdit := configGui.Add("Edit", "xs w100 Number", Config.WiggleThreshold)
+    configGui.Add("Text", "x+10", "Default: 350, Range: 100-2000")
+    
+    configGui.Add("Text", "xs y+15", "Detection Window (milliseconds):")
+    timeEdit := configGui.Add("Edit", "xs w100 Number", Config.TimeWindow)
+    configGui.Add("Text", "x+10", "Default: 750, Range: 100-2000")
+    
+    configGui.Add("Text", "xs y+15", "Minimum Direction Changes:")
+    wiggleEdit := configGui.Add("Edit", "xs w100 Number", Config.MinWiggleCount)
+    configGui.Add("Text", "x+10", "Default: 3, Range: 2-10")
+    
+    configGui.Add("Text", "xs y+15", "Minimum Wiggle Distance (pixels):")
+    minDistEdit := configGui.Add("Edit", "xs w100 Number", Config.MinWiggleDistance)
+    configGui.Add("Text", "x+10", "Default: 30, Range: 5-200")
+    
+    configGui.Add("Text", "xs y+15", "Max Single Direction Movement (pixels):")
+    maxDirEdit := configGui.Add("Edit", "xs w100 Number", Config.MaxSingleDirection)
+    configGui.Add("Text", "x+10", "Default: 500, Range: 100-1000")
+    
+    alternateCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.RequireAlternating,
+        "Require alternating left-right movement")
+    
+    ; ==================== ADVANCED DETECTION TAB ====================
+    tabs.UseTab(2)
+    
+    configGui.Add("Text", "Section", "Advanced Detection Options (Performance Impact)")
+    
+    circularCheck := configGui.Add("CheckBox", "xs y+15 Checked" . Config.CircularWiggleDetection,
+        "Enable Circular Wiggle Detection (CPU Intensive)")
+    configGui.Add("Text", "xs", "Detects circular mouse movements as wiggles")
+    
+    diagonalCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.DiagonalWiggleDetection,
+        "Enable Diagonal Wiggle Detection (CPU Intensive)")
+    configGui.Add("Text", "xs", "Detects diagonal patterns as wiggles")
+    
+    configGui.Add("Text", "xs y+20", "Pattern Memory (movements):")
+    patternEdit := configGui.Add("Edit", "xs w100 Number", Config.PatternMemory)
+    configGui.Add("Text", "x+10", "Default: 5, Range: 1-20")
+    
+    adaptiveCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.AdaptiveSensitivity,
+        "Adaptive Sensitivity (CPU Intensive)")
+    configGui.Add("Text", "xs", "Automatically adjusts sensitivity based on usage patterns")
+    
+    ; ==================== DISPLAY TAB ====================
+    tabs.UseTab(3)
+    
+    configGui.Add("Text", "Section", "Cursor Scaling Settings")
+    
+    configGui.Add("Text", "xs y+15", "Resting Scale (when not wiggling):")
+    restingEdit := configGui.Add("Edit", "xs w100", Format("{:.3f}", Config.RestingScale))
+    configGui.Add("Text", "x+10", "Default: 1.0, Range: 0.001-10.0")
+    
+    configGui.Add("Text", "xs y+20", "Minimum Scale (smallest allowed):")
+    minScaleEdit := configGui.Add("Edit", "xs w100", Format("{:.3f}", Config.MinimumScale))
+    configGui.Add("Text", "x+10", "Default: 0.001, Range: 0.001-1.0")
+    
+    configGui.Add("Text", "xs y+20", "Maximum Scale (when wiggling):")
+    scaleEdit := configGui.Add("Edit", "xs w100", Format("{:.2f}", Config.EnlargeScale))
+    configGui.Add("Text", "x+10", "Default: 2.0, Range: 0.1-100.0")
+    
+    configGui.Add("Text", "xs y+20", "Maximum Scale Limit:")
+    maxScaleEdit := configGui.Add("Edit", "xs w100", Format("{:.2f}", Config.MaximumScale))
+    configGui.Add("Text", "x+10", "Default: 100.0, Range: 1.0-1000.0")
+    
+    maintainMaxCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.MaintainMaxWhileWiggling,
+        "Keep max size during continuous wiggling")
+    
+    continuousCheck := configGui.Add("CheckBox", "xs y+10 Checked" . Config.ContinuousGrowth,
+        "Continuously grow while wiggling")
+    
+    configGui.Add("Text", "xs y+10", "Growth Rate (multiplier per wiggle):")
+    growthRateEdit := configGui.Add("Edit", "xs w100", Format("{:.4f}", Config.GrowthRate))
+    configGui.Add("Text", "x+10", "Default: 1.02 (2% growth), Range: 1.0-2.0")
+    
+    configGui.Add("Text", "xs y+20", "Hold Duration after wiggle stops (ms):")
+    holdEdit := configGui.Add("Edit", "xs w100 Number", Config.EnlargeDuration)
+    configGui.Add("Text", "x+10", "Default: 500, Range: 0-5000")
+    
+    ; ==================== ANIMATION TAB ====================
+    tabs.UseTab(4)
+    
+    configGui.Add("Text", "Section", "Animation Settings")
+    
+    configGui.Add("Text", "xs y+15", "Growth Time (milliseconds):")
+    growthEdit := configGui.Add("Edit", "xs w100 Number", Config.InterpolationTime)
+    configGui.Add("Text", "x+10", "Default: 800, Range: 50-3000")
+    
+    configGui.Add("Text", "xs y+20", "Shrink Time (milliseconds):")
+    shrinkEdit := configGui.Add("Edit", "xs w100 Number", Config.ShrinkTime)
+    configGui.Add("Text", "x+10", "Default: 1000, Range: 50-3000")
+    
+    smoothCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.SmoothShrink,
+        "Smooth shrink animation")
+    
+    ; ==================== VISUAL EFFECTS TAB ====================
+    tabs.UseTab(5)
+    
+    configGui.Add("Text", "Section", "Visual Effects (Performance Impact)")
+    
+    pulseCheck := configGui.Add("CheckBox", "xs y+15 Checked" . Config.PulseOnWiggle,
+        "Pulse effect while wiggling (CPU Intensive)")
+    
+    configGui.Add("Text", "xs y+10", "Pulse Speed (milliseconds):")
+    pulseSpeedEdit := configGui.Add("Edit", "xs w100 Number", Config.PulseSpeed)
+    configGui.Add("Text", "x+10", "Default: 500")
+    
+    rainbowCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.RainbowMode,
+        "Rainbow Mode (changes size continuously)")
+    
+    chaosCheck := configGui.Add("CheckBox", "xs y+20 Checked" . Config.ChaosMode,
+        "Chaos Mode (random scales)")
+    
+    configGui.Add("Text", "xs y+20", "Chaos Mode - Random Scale Min:")
+    randomMinEdit := configGui.Add("Edit", "xs w100", Format("{:.3f}", Config.RandomScaleMin))
+    configGui.Add("Text", "x+10", "Default: 0.001")
+    
+    configGui.Add("Text", "xs y+10", "Chaos Mode - Random Scale Max:")
+    randomMaxEdit := configGui.Add("Edit", "xs w100", Format("{:.2f}", Config.RandomScaleMax))
+    configGui.Add("Text", "x+10", "Default: 10.0")
+    
+    ; ==================== PERFORMANCE TAB ====================
+    tabs.UseTab(6)
+    
+    configGui.Add("Text", "Section", "Performance Settings")
+    
+    configGui.Add("Text", "xs y+15", "Check Interval (milliseconds):")
+    checkEdit := configGui.Add("Edit", "xs w100 Number", Config.CheckInterval)
+    configGui.Add("Text", "x+10", "Default: 30, Range: 10-100")
+    
+    configGui.Add("Text", "xs y+20", "Update Interval (milliseconds):")
+    updateEdit := configGui.Add("Edit", "xs w100 Number", Config.UpdateInterval)
+    configGui.Add("Text", "x+10", "Default: 50, Range: 20-200")
+    
+    configGui.Add("Text", "xs y+30", "⚠️ Lower values = smoother but more CPU usage")
+    configGui.Add("Text", "xs y+10", "⚡ Higher values = less smooth but better performance")
+    
+    ; ==================== SYSTEM TAB ====================
+    tabs.UseTab(7)
+    
+    configGui.Add("Text", "Section", "System Information")
+    
+    configGui.Add("Text", "xs y+10", "Original System Cursor Size: " . SYSTEM_ORIGINAL_SIZE . " px")
+    configGui.Add("Text", "xs y+5", "Current Base Size: " . BASE_CURSOR_SIZE . " px")
+    configGui.Add("Text", "xs y+5", "Current Actual Size: " . GetCursorSize() . " px")
+    configGui.Add("Text", "xs y+5", "Absolute Minimum: " . ABSOLUTE_MIN_SIZE . " px")
+    configGui.Add("Text", "xs y+5", "Absolute Maximum: " . ABSOLUTE_MAX_SIZE . " px")
+    
+    configGui.Add("Text", "xs y+20", "Testing & Debug")
+    
+    testBtn := configGui.Add("Button", "xs w150", "Test Enlarge (2 sec)")
+    TestEnlarge() {
+        global targetCursorSize, BASE_CURSOR_SIZE, isAnimating, actualTargetScale
+        testScale := GetNumericValue(scaleEdit, 2.0, true)
+        actualTargetScale := testScale
+        calculatedSize := Round(BASE_CURSOR_SIZE * testScale)
+        targetCursorSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
+        isAnimating := true
+        
+        SetTimer(RestoreFromTest, -2000)
+    }
+    testBtn.OnEvent("Click", (*) => TestEnlarge())
+    
+    resetBtn := configGui.Add("Button", "xs y+10 w150", "Reset to System")
+    resetBtn.OnEvent("Click", (*) => RestoreCursor())
+    
+    ; ==================== END TABS ====================
+    tabs.UseTab()
+    
+    ; Bottom buttons
+    btnY := 580
+    btnSave := configGui.Add("Button", "x15 y" . btnY . " w90", "&Save")
+    btnCancel := configGui.Add("Button", "x+10 w90", "&Cancel")
+    btnDefaults := configGui.Add("Button", "x+10 w90", "&Defaults")
+    
+    OnSave(*) {
+        global wiggleDetectorInstance, BASE_CURSOR_SIZE
+        
+        ; Update configuration with values from controls
+        Config.WiggleThreshold := Min(Max(GetNumericValue(thresholdEdit), 100), 2000)
+        Config.TimeWindow := Min(Max(GetNumericValue(timeEdit), 100), 2000)
+        Config.MinWiggleCount := Min(Max(GetNumericValue(wiggleEdit), 2), 10)
+        Config.MinWiggleDistance := Min(Max(GetNumericValue(minDistEdit), 5), 200)
+        Config.MaxSingleDirection := Min(Max(GetNumericValue(maxDirEdit), 100), 1000)
+        Config.RequireAlternating := alternateCheck.Value
+        
+        Config.CircularWiggleDetection := circularCheck.Value
+        Config.DiagonalWiggleDetection := diagonalCheck.Value
+        Config.PatternMemory := Min(Max(GetNumericValue(patternEdit), 1), 20)
+        Config.AdaptiveSensitivity := adaptiveCheck.Value
+        
+        Config.RestingScale := Max(GetNumericValue(restingEdit, 1.0, true), 0.001)
+        Config.MinimumScale := Max(GetNumericValue(minScaleEdit, 0.001, true), 0.001)
+        Config.EnlargeScale := Min(Max(GetNumericValue(scaleEdit, 2.0, true), 0.001), 1000.0)
+        Config.MaximumScale := Min(Max(GetNumericValue(maxScaleEdit, 100.0, true), 1.0), 1000.0)
+        Config.MaintainMaxWhileWiggling := maintainMaxCheck.Value
+        Config.ContinuousGrowth := continuousCheck.Value
+        Config.GrowthRate := Min(Max(GetNumericValue(growthRateEdit, 1.02, true), 1.0), 2.0)
+        Config.EnlargeDuration := Min(Max(GetNumericValue(holdEdit), 0), 10000)
+        
+        Config.InterpolationTime := Min(Max(GetNumericValue(growthEdit), 50), 5000)
+        Config.ShrinkTime := Min(Max(GetNumericValue(shrinkEdit), 50), 5000)
+        Config.SmoothShrink := smoothCheck.Value
+        
+        Config.PulseOnWiggle := pulseCheck.Value
+        Config.PulseSpeed := Min(Max(GetNumericValue(pulseSpeedEdit), 100), 2000)
+        Config.RainbowMode := rainbowCheck.Value
+        Config.ChaosMode := chaosCheck.Value
+        Config.RandomScaleMin := Max(GetNumericValue(randomMinEdit, 0.001, true), 0.001)
+        Config.RandomScaleMax := Min(Max(GetNumericValue(randomMaxEdit, 10.0, true), 0.1), 100.0)
+        
+        Config.CheckInterval := Min(Max(GetNumericValue(checkEdit), 10), 100)
+        Config.UpdateInterval := Min(Max(GetNumericValue(updateEdit), 20), 200)
+        
+        Config.Save()
+        
+        InitializeBaseSizes()
+        
+        global targetCursorSize := BASE_CURSOR_SIZE
+        
+        if (IsObject(wiggleDetectorInstance)) {
+            wiggleDetectorInstance.Destroy()
+        }
+        wiggleDetectorInstance := WiggleDetector()
+        
+        configGui.Destroy()
+    }
+    
+    OnDefaults(*) {
+        ; Reasonable defaults with unlimited size support
+        thresholdEdit.Text := "350"
+        timeEdit.Text := "750"
+        wiggleEdit.Text := "3"
+        minDistEdit.Text := "30"
+        maxDirEdit.Text := "500"
+        alternateCheck.Value := true
+        
+        restingEdit.Text := "1.0"
+        minScaleEdit.Text := "0.001"
+        scaleEdit.Text := "2.0"
+        maxScaleEdit.Text := "100.0"
+        maintainMaxCheck.Value := true
+        continuousCheck.Value := true
+        growthRateEdit.Text := "1.02"
+        holdEdit.Text := "500"
+        
+        growthEdit.Text := "800"
+        shrinkEdit.Text := "1000"
+        smoothCheck.Value := true
+        
+        circularCheck.Value := false
+        diagonalCheck.Value := false
+        patternEdit.Text := "5"
+        adaptiveCheck.Value := false
+        
+        pulseCheck.Value := false
+        pulseSpeedEdit.Text := "500"
+        rainbowCheck.Value := false
+        chaosCheck.Value := false
+        randomMinEdit.Text := "0.001"
+        randomMaxEdit.Text := "10.0"
+        
+        checkEdit.Text := "30"
+        updateEdit.Text := "50"
+    }
+    
+    btnSave.OnEvent("Click", OnSave)
+    btnCancel.OnEvent("Click", (*) => configGui.Destroy())
+    btnDefaults.OnEvent("Click", OnDefaults)
+    
+    configGui.Show("w530 h650")
+}
+
+; Fixed callback for test enlarge
+RestoreFromTest() {
+    global targetCursorSize, BASE_CURSOR_SIZE, actualTargetScale
+    targetCursorSize := BASE_CURSOR_SIZE
+    actualTargetScale := Config.RestingScale
+}
+
+; ==================== TRAY MENU ====================
+A_TrayMenu.Delete()
+
+A_TrayMenu.Add("&Configuration", ShowConfigGui)
+A_TrayMenu.Add()
+
+ToggleDetection() {
+    Config.Enabled := !Config.Enabled
+    Config.Save()
+    A_TrayMenu.ToggleCheck("&Enable Detection")
+    
+    if (Config.Enabled) {
+    } else {
+        global targetCursorSize := BASE_CURSOR_SIZE
+    }
+}
+A_TrayMenu.Add("&Enable Detection", (*) => ToggleDetection())
+
+if (Config.Enabled)
+    A_TrayMenu.Check("&Enable Detection")
+
+TestEnlargeMenu() {
+    global targetCursorSize, BASE_CURSOR_SIZE, isAnimating, actualTargetScale
+    actualTargetScale := Config.EnlargeScale
+    calculatedSize := Round(BASE_CURSOR_SIZE * actualTargetScale)
+    targetCursorSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
+    isAnimating := true
+
+    SetTimer(RestoreFromTest, -2000)
+}
+A_TrayMenu.Add("&Test Enlarge", (*) => TestEnlargeMenu())
+
+A_TrayMenu.Add("&Restore System Default", (*) => RestoreCursor())
+A_TrayMenu.Add()
+
+; Quick Settings Menu
+quickMenu := Menu()
+
+SetScale(scale) {
+    global BASE_CURSOR_SIZE
+    Config.EnlargeScale := scale
+    Config.Save()
+    calculatedSize := Round(BASE_CURSOR_SIZE * Config.EnlargeScale)
+    maxSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
+
+}
+
+quickMenu.Add("Wiggle Scale 1.5x", (*) => SetScale(1.5))
+quickMenu.Add("Wiggle Scale 2x", (*) => SetScale(2))
+quickMenu.Add("Wiggle Scale 3x", (*) => SetScale(3))
+quickMenu.Add("Wiggle Scale 4x", (*) => SetScale(4))
+quickMenu.Add("Wiggle Scale 5x", (*) => SetScale(5))
+quickMenu.Add("Wiggle Scale 10x", (*) => SetScale(10))
+quickMenu.Add("Wiggle Scale 50x", (*) => SetScale(50))
+quickMenu.Add("Wiggle Scale 100x", (*) => SetScale(100))
+
+A_TrayMenu.Add("&Quick Settings", quickMenu)
+A_TrayMenu.Add()
+
+ShowAbout() {
+    MsgBox("Mouse Wiggle Enlarger UNLIMITED v3.0`n`n" .
+        "Features:`n" .
+        "• NO SIZE LIMITS (0.001x to 1000x)`n" .
+        "• Continuous growth while wiggling`n" .
+        "• Smooth, slow animations`n" .
+        "• Performance optimized`n" .
+        "• Configurable detection modes`n`n" .
+        "Hotkeys:`n" .
+        "Ctrl+Shift+R: Restore system default cursor`n" .
+        "Ctrl+Shift+E: Toggle enable`n" .
+        "Ctrl+Shift+C: Configuration`n`n" .
+        "System cursor size: " . SYSTEM_ORIGINAL_SIZE . " px`n" .
+        "Current base size: " . BASE_CURSOR_SIZE . " px`n" .
+        "Current actual size: " . GetCursorSize() . " px", "About", 0x40)
+}
+A_TrayMenu.Add("&About", (*) => ShowAbout())
+
+ExitAppr() {
+    RestoreCursor()
+    Config.Save()
+    ExitApp()
+}
+A_TrayMenu.Add("E&xit", (*) => ExitAppr())
+
+; ==================== HOTKEYS ====================
+^+r:: RestoreCursor()
+
+^+c:: ShowConfigGui()
+
+; ==================== STARTUP ====================
+Config.Load()
+InitializeBaseSizes()
+wiggleDetectorInstance := WiggleDetector()
+
+A_IconTip := "Mouse Wiggle Enlarger UNLIMITED`nRight-click for options"
+
+; Show startup notification
+
+
+; Helper function for ATan2 (not built-in to AHK v2)
+ATan2(y, x) {
+    return DllCall("msvcrt\atan2", "Double", y, "Double", x, "Double")
+}
