@@ -158,10 +158,13 @@ global isEnlarged := false
 global isCurrentlyWiggling := false   ; Track active wiggling state
 global wiggleDetectorInstance := ""
 global lastCursorUpdate := 0
-global checkMouseTimer := 0
-global updateCursorTimer := 0
-global shrinkTimer := 0
 global wiggleCount := 0               ; Track consecutive wiggles for growth
+
+; Critical sections for preventing timer conflicts
+global isCheckingMouse := false
+global isUpdatingCursor := false
+global lastCheckTime := 0
+global lastUpdateTime := 0
 
 ; ==================== MAIN DETECTION CLASS ====================
 class WiggleDetector {
@@ -172,15 +175,89 @@ class WiggleDetector {
         this.lastX := x
         this.lastY := y
         
-        this.checkTimer := ObjBindMethod(this, "CheckMouse")
-        this.updateTimer := ObjBindMethod(this, "UpdateCursor")
+        ; Store timer references
+        this.checkTimer := ""
+        this.updateTimer := ""
+        this.shrinkTimer := ""
         
-        global checkMouseTimer, updateCursorTimer
+        ; Start the timers
+        this.StartTimers()
+    }
+    
+    StartTimers() {
+        ; Stop any existing timers first
+        this.StopTimers()
+        
+        ; Create timer functions that check for concurrency
+        this.checkTimer := () => this.SafeCheckMouse()
+        this.updateTimer := () => this.SafeUpdateCursor()
+        
+        ; Start the timers
         SetTimer(this.checkTimer, Config.CheckInterval)
-        checkMouseTimer := this.checkTimer
-        
         SetTimer(this.updateTimer, Config.UpdateInterval)
-        updateCursorTimer := this.updateTimer
+    }
+    
+    StopTimers() {
+        if (this.checkTimer) {
+            SetTimer(this.checkTimer, 0)
+            this.checkTimer := ""
+        }
+        if (this.updateTimer) {
+            SetTimer(this.updateTimer, 0)
+            this.updateTimer := ""
+        }
+        if (this.shrinkTimer) {
+            SetTimer(this.shrinkTimer, 0)
+            this.shrinkTimer := ""
+        }
+    }
+    
+    SafeCheckMouse() {
+        global isCheckingMouse, lastCheckTime
+        
+        ; Prevent re-entry
+        if (isCheckingMouse)
+            return
+            
+        ; Check if enough time has passed
+        now := A_TickCount
+        if (now - lastCheckTime < Config.CheckInterval - 5)
+            return
+            
+        isCheckingMouse := true
+        lastCheckTime := now
+        
+        try {
+            this.CheckMouse()
+        } catch as err {
+            ; Log error but don't crash
+        }
+        
+        isCheckingMouse := false
+    }
+    
+    SafeUpdateCursor() {
+        global isUpdatingCursor, lastUpdateTime
+        
+        ; Prevent re-entry
+        if (isUpdatingCursor)
+            return
+            
+        ; Check if enough time has passed
+        now := A_TickCount
+        if (now - lastUpdateTime < Config.UpdateInterval - 5)
+            return
+            
+        isUpdatingCursor := true
+        lastUpdateTime := now
+        
+        try {
+            this.UpdateCursor()
+        } catch as err {
+            ; Log error but don't crash
+        }
+        
+        isUpdatingCursor := false
     }
     
     Reset() {
@@ -202,7 +279,12 @@ class WiggleDetector {
         if (!Config.Enabled)
             return
         
-        MouseGetPos(&currentX, &currentY)
+        ; Get mouse position with error handling
+        try {
+            MouseGetPos(&currentX, &currentY)
+        } catch {
+            return
+        }
         
         deltaX := currentX - this.lastX
         deltaY := currentY - this.lastY
@@ -424,16 +506,16 @@ class WiggleDetector {
     }
     
     StartWiggling() {
-        global targetCursorSize, isAnimating, isEnlarged, BASE_CURSOR_SIZE, isCurrentlyWiggling, wiggleCount, actualTargetScale, shrinkTimer
+        global targetCursorSize, isAnimating, isEnlarged, BASE_CURSOR_SIZE, isCurrentlyWiggling, wiggleCount, actualTargetScale
         
         isCurrentlyWiggling := true
         wiggleCount := 1
         this.wiggleStartTime := A_TickCount
         
         ; Clear any existing shrink timer
-        if (shrinkTimer) {
-            SetTimer(shrinkTimer, 0)
-            shrinkTimer := 0
+        if (this.shrinkTimer) {
+            SetTimer(this.shrinkTimer, 0)
+            this.shrinkTimer := ""
         }
         
         ; Calculate initial target
@@ -449,7 +531,6 @@ class WiggleDetector {
         
         isAnimating := true
         isEnlarged := true
-
     }
     
     ContinueWiggling() {
@@ -475,20 +556,30 @@ class WiggleDetector {
     }
     
     StopWiggling() {
-        global shrinkTimer, isCurrentlyWiggling, wiggleCount
+        global isCurrentlyWiggling, wiggleCount
         
         isCurrentlyWiggling := false
         wiggleCount := 0
         
         ; Clear any existing timer
-        if (shrinkTimer) {
-            SetTimer(shrinkTimer, 0)
-            shrinkTimer := 0
+        if (this.shrinkTimer) {
+            SetTimer(this.shrinkTimer, 0)
+            this.shrinkTimer := ""
         }
         
-        ; Set timer to shrink after the configured duration
-        shrinkTimer := ShrinkAfterDelay
-        SetTimer(shrinkTimer, -Config.EnlargeDuration)
+        ; Create a new shrink callback
+        this.shrinkTimer := () => this.ShrinkAfterDelay()
+        SetTimer(this.shrinkTimer, -Config.EnlargeDuration)
+    }
+    
+    ShrinkAfterDelay() {
+        global targetCursorSize, BASE_CURSOR_SIZE, isEnlarged, isCurrentlyWiggling, actualTargetScale
+        
+        if (!isCurrentlyWiggling) {
+            targetCursorSize := BASE_CURSOR_SIZE
+            isEnlarged := false
+            actualTargetScale := Config.RestingScale
+        }
     }
     
     UpdateCursor() {
@@ -529,9 +620,15 @@ class WiggleDetector {
         newSize := Round(currentCursorSize)
         newSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, newSize))
         
-        if (newSize != GetCursorSize()) {
-            SetCursorSize(newSize)
-            lastCursorUpdate := now
+        ; Only update if size actually changed
+        currentActualSize := GetCursorSize()
+        if (newSize != currentActualSize) {
+            try {
+                SetCursorSize(newSize)
+                lastCursorUpdate := now
+            } catch {
+                ; Ignore errors from cursor size changes
+            }
         }
         
         if (Abs(currentCursorSize - targetCursorSize) < 0.5) {
@@ -543,15 +640,7 @@ class WiggleDetector {
     }
     
     Destroy() {
-        global checkMouseTimer, updateCursorTimer
-        if (checkMouseTimer) {
-            SetTimer(checkMouseTimer, 0)
-            checkMouseTimer := 0
-        }
-        if (updateCursorTimer) {
-            SetTimer(updateCursorTimer, 0)
-            updateCursorTimer := 0
-        }
+        this.StopTimers()
     }
 }
 
@@ -573,11 +662,15 @@ SetCursorSize(size) {
         size := ABSOLUTE_MAX_SIZE
     
     try {
+        ; Use Critical to prevent interruptions during registry operations
+        Critical("On")
         RegWrite(size, "REG_DWORD", "HKCU\Control Panel\Cursors", "CursorBaseSize")
         DllCall("SystemParametersInfo", "UInt", 0x2029, "UInt", 0, "Ptr", size, "UInt", 0x01)
         DllCall("SystemParametersInfo", "UInt", 0x0057, "UInt", 0, "Ptr", 0, "UInt", 0)
+        Critical("Off")
         return true
     } catch {
+        Critical("Off")
         return false
     }
 }
@@ -618,17 +711,6 @@ InitializeBaseSizes() {
     
     if (BASE_CURSOR_SIZE != SYSTEM_ORIGINAL_SIZE) {
         SetCursorSize(BASE_CURSOR_SIZE)
-    }
-}
-
-; Callback for delayed shrink
-ShrinkAfterDelay() {
-    global targetCursorSize, BASE_CURSOR_SIZE, isEnlarged, isCurrentlyWiggling, actualTargetScale
-    
-    if (!isCurrentlyWiggling) {
-        targetCursorSize := BASE_CURSOR_SIZE
-        isEnlarged := false
-        actualTargetScale := Config.RestingScale
     }
 }
 
@@ -986,7 +1068,6 @@ SetScale(scale) {
     Config.Save()
     calculatedSize := Round(BASE_CURSOR_SIZE * Config.EnlargeScale)
     maxSize := Max(ABSOLUTE_MIN_SIZE, Min(ABSOLUTE_MAX_SIZE, calculatedSize))
-
 }
 
 quickMenu.Add("Wiggle Scale 1.5x", (*) => SetScale(1.5))
@@ -1020,6 +1101,10 @@ ShowAbout() {
 A_TrayMenu.Add("&About", (*) => ShowAbout())
 
 ExitAppr() {
+    global wiggleDetectorInstance
+    if (IsObject(wiggleDetectorInstance)) {
+        wiggleDetectorInstance.Destroy()
+    }
     RestoreCursor()
     Config.Save()
     ExitApp()
@@ -1031,15 +1116,14 @@ A_TrayMenu.Add("E&xit", (*) => ExitAppr())
 
 ^+c:: ShowConfigGui()
 
+^+e:: ToggleDetection()
+
 ; ==================== STARTUP ====================
 Config.Load()
 InitializeBaseSizes()
 wiggleDetectorInstance := WiggleDetector()
 
 A_IconTip := "Mouse Wiggle Enlarger UNLIMITED`nRight-click for options"
-
-; Show startup notification
-
 
 ; Helper function for ATan2 (not built-in to AHK v2)
 ATan2(y, x) {
